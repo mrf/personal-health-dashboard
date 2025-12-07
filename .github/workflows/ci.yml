@@ -64,20 +64,6 @@ jobs:
       - name: Run tests with coverage
         run: make coverage
 
-      - name: Upload backend coverage
-        uses: codecov/codecov-action@v4
-        with:
-          file: backend/coverage.xml
-          flags: backend
-          fail_ci_if_error: false
-
-      - name: Upload frontend coverage
-        uses: codecov/codecov-action@v4
-        with:
-          file: frontend/coverage/coverage-final.json
-          flags: frontend
-          fail_ci_if_error: false
-
   build:
     name: Build
     runs-on: ubuntu-latest
