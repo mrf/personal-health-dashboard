@@ -78,3 +78,23 @@ async def get_available_date_range():
     """Get the date range of available data."""
     min_date, max_date = database.get_date_range()
     return {"min_date": min_date, "max_date": max_date}
+
+
+@router.get("/units")
+async def get_units():
+    """Get detected units for all metrics."""
+    return database.get_all_units()
+
+
+@router.get("/units/{metric}")
+async def get_metric_unit(metric: str):
+    """Get detected unit for a specific metric."""
+    unit = database.get_unit(metric)
+    return {"metric": metric, "unit": unit}
+
+
+@router.post("/units/detect")
+async def detect_units():
+    """Detect and store units from existing health records."""
+    units = database.detect_units_from_data()
+    return {"message": "Units detected", "units": units}

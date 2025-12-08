@@ -144,6 +144,14 @@ export const api = {
       `${API_BASE}/health/date-range`
     ),
 
+  getUnits: () =>
+    fetchJson<Record<string, string>>(`${API_BASE}/health/units`),
+
+  getUnit: (metric: string) =>
+    fetchJson<{ metric: string; unit: string | null }>(
+      `${API_BASE}/health/units/${metric}`
+    ),
+
   // Insights
   getTrends: (days = 30) =>
     fetchJson<{ trends: TrendInsight[]; period_days: number }>(

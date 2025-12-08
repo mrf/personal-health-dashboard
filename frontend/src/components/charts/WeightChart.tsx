@@ -1,4 +1,6 @@
+import { useState, useEffect } from 'react';
 import { useMetricHistory } from '../../hooks/useHealthData';
+import { api } from '../../services/api';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface WeightChartProps {
@@ -7,6 +9,13 @@ interface WeightChartProps {
 
 export function WeightChart({ days = 90 }: WeightChartProps) {
   const { data, loading, error } = useMetricHistory('weight', days);
+  const [unit, setUnit] = useState<string>('lb');
+
+  useEffect(() => {
+    api.getUnit('weight').then(res => {
+      if (res.unit) setUnit(res.unit);
+    }).catch(() => {});
+  }, []);
 
   if (loading) {
     return (
@@ -44,17 +53,17 @@ export function WeightChart({ days = 90 }: WeightChartProps) {
       <div className="flex gap-6 mb-4 text-sm">
         <div>
           <span className="text-gray-500">Current: </span>
-          <span className="font-medium">{current.toFixed(1)} kg</span>
+          <span className="font-medium">{current.toFixed(1)} {unit}</span>
         </div>
         <div>
           <span className="text-gray-500">Change: </span>
           <span className={`font-medium ${change < 0 ? 'text-green-600' : change > 0 ? 'text-red-600' : ''}`}>
-            {change > 0 ? '+' : ''}{change.toFixed(1)} kg
+            {change > 0 ? '+' : ''}{change.toFixed(1)} {unit}
           </span>
         </div>
         <div>
           <span className="text-gray-500">Range: </span>
-          <span className="font-medium">{min.toFixed(1)} - {max.toFixed(1)} kg</span>
+          <span className="font-medium">{min.toFixed(1)} - {max.toFixed(1)} {unit}</span>
         </div>
       </div>
       <ResponsiveContainer width="100%" height={300}>
@@ -72,11 +81,11 @@ export function WeightChart({ days = 90 }: WeightChartProps) {
             tick={{ fontSize: 12, fill: '#6b7280' }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(w) => `${w}kg`}
+            tickFormatter={(w) => `${w} ${unit}`}
           />
           <Tooltip
             labelFormatter={(date) => new Date(date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-            formatter={(value: number) => [`${value.toFixed(1)} kg`, 'Weight']}
+            formatter={(value: number) => [`${value.toFixed(1)} ${unit}`, 'Weight']}
             contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }}
           />
           <Line

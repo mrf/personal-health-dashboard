@@ -97,6 +97,7 @@ def parse_apple_health_export(file_path: str, progress_callback=None) -> dict:
     health_records = []
     workouts = []
     sleep_records = []
+    detected_units = {}  # Track units for each metric type
 
     record_count = 0
     batch_size = 5000
@@ -118,10 +119,16 @@ def parse_apple_health_export(file_path: str, progress_callback=None) -> dict:
                     except (ValueError, TypeError):
                         value = None
 
+                    unit = elem.get("unit")
+
+                    # Capture first unit seen for each record type
+                    if record_type not in detected_units and unit:
+                        detected_units[record_type] = unit
+
                     record = (
                         record_type,
                         value,
-                        elem.get("unit"),
+                        unit,
                         parse_date(elem.get("startDate", "")).isoformat(),
                         parse_date(elem.get("endDate", "")).isoformat(),
                         elem.get("sourceName"),
@@ -203,6 +210,21 @@ def parse_apple_health_export(file_path: str, progress_callback=None) -> dict:
             database.insert_workouts(workouts)
         if sleep_records:
             database.insert_sleep_records(sleep_records)
+
+        # Store detected units
+        metric_name_map = {
+            "HKQuantityTypeIdentifierBodyMass": "weight",
+            "HKQuantityTypeIdentifierStepCount": "steps",
+            "HKQuantityTypeIdentifierDistanceWalkingRunning": "distance",
+            "HKQuantityTypeIdentifierActiveEnergyBurned": "calories",
+            "HKQuantityTypeIdentifierHeartRate": "heart_rate",
+            "HKQuantityTypeIdentifierRestingHeartRate": "resting_heart_rate",
+            "HKQuantityTypeIdentifierHeight": "height",
+            "HKQuantityTypeIdentifierFlightsClimbed": "flights",
+        }
+        for hk_type, unit in detected_units.items():
+            metric_name = metric_name_map.get(hk_type, hk_type)
+            database.set_unit(metric_name, unit)
 
         # Compute daily summaries
         database.update_import_status("computing", 95, record_count)

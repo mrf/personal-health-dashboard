@@ -87,6 +87,14 @@ def init_database():
         )
     """)
 
+    # Units table - stores detected units from import
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS units (
+            metric TEXT PRIMARY KEY,
+            unit TEXT NOT NULL
+        )
+    """)
+
     # Initialize import status if not exists
     cursor.execute("""
         INSERT OR IGNORE INTO import_status (id, status, progress, records_imported)
@@ -105,16 +113,26 @@ def init_database():
 
 
 def clear_database():
-    """Clear all health data from database."""
+    """Clear all health data from database.
+
+    Uses DROP TABLE instead of DELETE for performance with large datasets.
+    """
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM health_records")
-    cursor.execute("DELETE FROM workouts")
-    cursor.execute("DELETE FROM sleep_records")
-    cursor.execute("DELETE FROM daily_summary")
+
+    # Drop and recreate tables - much faster than DELETE for millions of rows
+    cursor.execute("DROP TABLE IF EXISTS health_records")
+    cursor.execute("DROP TABLE IF EXISTS workouts")
+    cursor.execute("DROP TABLE IF EXISTS sleep_records")
+    cursor.execute("DROP TABLE IF EXISTS daily_summary")
+
+    # Reset import status
     cursor.execute("UPDATE import_status SET status='idle', progress=0, records_imported=0")
     conn.commit()
     conn.close()
+
+    # Recreate the tables
+    init_database()
 
 
 def get_import_status() -> dict:
@@ -127,6 +145,75 @@ def get_import_status() -> dict:
     if row:
         return dict(row)
     return {"status": "idle", "progress": 0, "records_imported": 0, "last_import": None, "error_message": None}
+
+
+def set_unit(metric: str, unit: str):
+    """Store the unit for a metric."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR REPLACE INTO units (metric, unit) VALUES (?, ?)",
+        (metric, unit)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_unit(metric: str) -> str | None:
+    """Get the stored unit for a metric."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT unit FROM units WHERE metric = ?", (metric,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def get_all_units() -> dict:
+    """Get all stored units."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT metric, unit FROM units")
+    rows = cursor.fetchall()
+    conn.close()
+    return {row[0]: row[1] for row in rows}
+
+
+def detect_units_from_data():
+    """Detect and store units from existing health_records data."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    metric_name_map = {
+        "HKQuantityTypeIdentifierBodyMass": "weight",
+        "HKQuantityTypeIdentifierStepCount": "steps",
+        "HKQuantityTypeIdentifierDistanceWalkingRunning": "distance",
+        "HKQuantityTypeIdentifierActiveEnergyBurned": "calories",
+        "HKQuantityTypeIdentifierHeartRate": "heart_rate",
+        "HKQuantityTypeIdentifierRestingHeartRate": "resting_heart_rate",
+        "HKQuantityTypeIdentifierHeight": "height",
+        "HKQuantityTypeIdentifierFlightsClimbed": "flights",
+    }
+
+    # Get first non-null unit for each type
+    cursor.execute("""
+        SELECT type, unit FROM health_records
+        WHERE unit IS NOT NULL
+        GROUP BY type
+    """)
+    rows = cursor.fetchall()
+
+    for row in rows:
+        hk_type, unit = row[0], row[1]
+        metric_name = metric_name_map.get(hk_type, hk_type)
+        cursor.execute(
+            "INSERT OR REPLACE INTO units (metric, unit) VALUES (?, ?)",
+            (metric_name, unit)
+        )
+
+    conn.commit()
+    conn.close()
+    return get_all_units()
 
 
 def update_import_status(status: str, progress: float = 0, records_imported: int = 0, error_message: str = None):
@@ -186,106 +273,111 @@ def insert_sleep_records(records: list):
 
 
 def compute_daily_summaries():
-    """Compute daily summaries from raw health records."""
+    """Compute daily summaries from raw health records using efficient batch queries."""
     conn = get_connection()
     cursor = conn.cursor()
 
     # Clear existing summaries
     cursor.execute("DELETE FROM daily_summary")
 
-    # Get all unique dates
+    # Aggregate all health metrics in a single query with GROUP BY
+    # This is much faster than per-day queries for large datasets
     cursor.execute("""
-        SELECT DISTINCT DATE(start_date) as date FROM health_records
-        UNION
-        SELECT DISTINCT DATE(start_date) as date FROM workouts
-        UNION
-        SELECT DISTINCT DATE(start_date) as date FROM sleep_records
-        ORDER BY date
+        INSERT INTO daily_summary (date, steps, active_calories, resting_heart_rate, distance_km, flights_climbed)
+        SELECT
+            DATE(start_date) as date,
+            SUM(CASE WHEN type = 'HKQuantityTypeIdentifierStepCount' THEN value END) as steps,
+            SUM(CASE WHEN type = 'HKQuantityTypeIdentifierActiveEnergyBurned' THEN value END) as active_calories,
+            AVG(CASE WHEN type = 'HKQuantityTypeIdentifierRestingHeartRate' THEN value END) as resting_heart_rate,
+            CASE
+                WHEN SUM(CASE WHEN type = 'HKQuantityTypeIdentifierDistanceWalkingRunning' THEN value END) > 1000
+                THEN SUM(CASE WHEN type = 'HKQuantityTypeIdentifierDistanceWalkingRunning' THEN value END) / 1000.0
+                ELSE SUM(CASE WHEN type = 'HKQuantityTypeIdentifierDistanceWalkingRunning' THEN value END)
+            END as distance_km,
+            SUM(CASE WHEN type = 'HKQuantityTypeIdentifierFlightsClimbed' THEN value END) as flights_climbed
+        FROM health_records
+        WHERE DATE(start_date) IS NOT NULL
+        GROUP BY DATE(start_date)
     """)
-    dates = [row[0] for row in cursor.fetchall()]
 
-    for d in dates:
-        if not d:
-            continue
+    # Update with weight (most recent per day) - use a subquery to get latest per day
+    cursor.execute("""
+        UPDATE daily_summary
+        SET weight = (
+            SELECT value FROM health_records hr
+            WHERE hr.type = 'HKQuantityTypeIdentifierBodyMass'
+            AND DATE(hr.start_date) = daily_summary.date
+            ORDER BY hr.start_date DESC
+            LIMIT 1
+        )
+        WHERE EXISTS (
+            SELECT 1 FROM health_records hr
+            WHERE hr.type = 'HKQuantityTypeIdentifierBodyMass'
+            AND DATE(hr.start_date) = daily_summary.date
+        )
+    """)
 
-        # Steps
-        cursor.execute("""
-            SELECT SUM(value) FROM health_records
-            WHERE type = 'HKQuantityTypeIdentifierStepCount'
-            AND DATE(start_date) = ?
-        """, (d,))
-        steps = cursor.fetchone()[0]
-
-        # Active calories
-        cursor.execute("""
-            SELECT SUM(value) FROM health_records
-            WHERE type = 'HKQuantityTypeIdentifierActiveEnergyBurned'
-            AND DATE(start_date) = ?
-        """, (d,))
-        active_calories = cursor.fetchone()[0]
-
-        # Resting heart rate (average)
-        cursor.execute("""
-            SELECT AVG(value) FROM health_records
-            WHERE type = 'HKQuantityTypeIdentifierRestingHeartRate'
-            AND DATE(start_date) = ?
-        """, (d,))
-        resting_hr = cursor.fetchone()[0]
-
-        # Weight (most recent of the day)
-        cursor.execute("""
-            SELECT value FROM health_records
-            WHERE type = 'HKQuantityTypeIdentifierBodyMass'
-            AND DATE(start_date) = ?
-            ORDER BY start_date DESC LIMIT 1
-        """, (d,))
-        weight_row = cursor.fetchone()
-        weight = weight_row[0] if weight_row else None
-
-        # Distance
-        cursor.execute("""
-            SELECT SUM(value) FROM health_records
-            WHERE type = 'HKQuantityTypeIdentifierDistanceWalkingRunning'
-            AND DATE(start_date) = ?
-        """, (d,))
-        distance = cursor.fetchone()[0]
-        # Convert to km if in meters
-        if distance:
-            distance = distance / 1000 if distance > 1000 else distance
-
-        # Flights climbed
-        cursor.execute("""
-            SELECT SUM(value) FROM health_records
-            WHERE type = 'HKQuantityTypeIdentifierFlightsClimbed'
-            AND DATE(start_date) = ?
-        """, (d,))
-        flights = cursor.fetchone()[0]
-
-        # Workout minutes
-        cursor.execute("""
+    # Update with workout minutes
+    cursor.execute("""
+        UPDATE daily_summary
+        SET workout_minutes = (
             SELECT SUM(duration_minutes) FROM workouts
-            WHERE DATE(start_date) = ?
-        """, (d,))
-        workout_mins = cursor.fetchone()[0]
+            WHERE DATE(workouts.start_date) = daily_summary.date
+        )
+        WHERE EXISTS (
+            SELECT 1 FROM workouts
+            WHERE DATE(workouts.start_date) = daily_summary.date
+        )
+    """)
 
-        # Sleep hours (sum of asleep time)
-        cursor.execute("""
+    # Update with sleep hours
+    cursor.execute("""
+        UPDATE daily_summary
+        SET sleep_hours = (
             SELECT SUM((JULIANDAY(end_date) - JULIANDAY(start_date)) * 24)
             FROM sleep_records
-            WHERE sleep_type IN ('HKCategoryValueSleepAnalysisAsleepCore',
-                                 'HKCategoryValueSleepAnalysisAsleepDeep',
-                                 'HKCategoryValueSleepAnalysisAsleepREM',
-                                 'HKCategoryValueSleepAnalysisAsleep')
-            AND DATE(start_date) = ?
-        """, (d,))
-        sleep_hours = cursor.fetchone()[0]
+            WHERE sleep_type IN (
+                'HKCategoryValueSleepAnalysisAsleepCore',
+                'HKCategoryValueSleepAnalysisAsleepDeep',
+                'HKCategoryValueSleepAnalysisAsleepREM',
+                'HKCategoryValueSleepAnalysisAsleep'
+            )
+            AND DATE(sleep_records.start_date) = daily_summary.date
+        )
+        WHERE EXISTS (
+            SELECT 1 FROM sleep_records
+            WHERE sleep_type IN (
+                'HKCategoryValueSleepAnalysisAsleepCore',
+                'HKCategoryValueSleepAnalysisAsleepDeep',
+                'HKCategoryValueSleepAnalysisAsleepREM',
+                'HKCategoryValueSleepAnalysisAsleep'
+            )
+            AND DATE(sleep_records.start_date) = daily_summary.date
+        )
+    """)
 
-        # Insert summary
-        cursor.execute("""
-            INSERT OR REPLACE INTO daily_summary
-            (date, steps, active_calories, resting_heart_rate, weight, sleep_hours, workout_minutes, distance_km, flights_climbed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (d, steps, active_calories, resting_hr, weight, sleep_hours, workout_mins, distance, flights))
+    # Insert any dates that only have workout or sleep data (no health_records)
+    cursor.execute("""
+        INSERT OR IGNORE INTO daily_summary (date, workout_minutes)
+        SELECT DATE(start_date), SUM(duration_minutes)
+        FROM workouts
+        WHERE DATE(start_date) NOT IN (SELECT date FROM daily_summary)
+        GROUP BY DATE(start_date)
+    """)
+
+    cursor.execute("""
+        INSERT OR IGNORE INTO daily_summary (date, sleep_hours)
+        SELECT DATE(start_date), SUM((JULIANDAY(end_date) - JULIANDAY(start_date)) * 24)
+        FROM sleep_records
+        WHERE sleep_type IN (
+            'HKCategoryValueSleepAnalysisAsleepCore',
+            'HKCategoryValueSleepAnalysisAsleepDeep',
+            'HKCategoryValueSleepAnalysisAsleepREM',
+            'HKCategoryValueSleepAnalysisAsleep'
+        )
+        AND DATE(start_date) NOT IN (SELECT date FROM daily_summary)
+        GROUP BY DATE(start_date)
+    """)
 
     conn.commit()
     conn.close()

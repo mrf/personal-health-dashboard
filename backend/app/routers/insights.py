@@ -243,7 +243,22 @@ async def get_weekly_summary():
     summaries = database.get_summaries_in_range(start_date, end_date)
 
     if not summaries:
-        return {"message": "No data available"}
+        return {
+            "period": {"start": start_date.isoformat(), "end": end_date.isoformat()},
+            "averages": {
+                "steps": None,
+                "active_calories": None,
+                "sleep_hours": None,
+                "resting_heart_rate": None,
+            },
+            "totals": {
+                "steps": None,
+                "active_calories": None,
+                "workout_minutes": None,
+                "flights_climbed": None,
+            },
+            "days_with_data": 0
+        }
 
     def safe_avg(values):
         filtered = [v for v in values if v is not None]

@@ -199,6 +199,61 @@ Make sure you've activated the virtual environment and installed dependencies.
 ### Charts not loading
 Check that both backend (port 8000) and frontend (port 5173) are running.
 
+### White screen after import
+This usually means an API response doesn't match what the frontend expects. Check the browser console for errors and ensure the backend is running.
+
+### Manual Import (WSL/Large Files)
+
+If the UI import isn't working or you have a very large export file (3GB+), you can import manually:
+
+1. **Locate your export file** - On WSL, Windows paths are accessible via `/mnt/c/`:
+   ```bash
+   ls -lh "/mnt/c/Users/YourName/Documents/apple_health_export/"
+   ```
+
+2. **Symlink or copy to data folder**:
+   ```bash
+   # Create symlink (recommended for large files)
+   ln -sf "/mnt/c/Users/YourName/Documents/apple_health_export/export.xml" data/export.xml
+
+   # Or copy
+   cp "/mnt/c/path/to/export.xml" data/export.xml
+   ```
+
+3. **Clear existing data and start import**:
+   ```bash
+   curl -X DELETE http://localhost:8000/api/data
+   curl -X POST http://localhost:8000/api/upload/local
+   ```
+
+4. **Monitor import progress**:
+   ```bash
+   # Check status once
+   curl http://localhost:8000/api/status
+
+   # Monitor continuously (every 5 seconds)
+   watch -n 5 'curl -s http://localhost:8000/api/status | python3 -m json.tool'
+   ```
+
+   Status will show:
+   - `parsing` - Reading XML and inserting records
+   - `computing` - Aggregating daily summaries (can take a while for large datasets)
+   - `complete` - Ready to use
+   - `error` - Check `error_message` field
+
+### Import is stuck on "computing"
+
+For very large exports (5+ million records), the daily summary computation can take 10-30 minutes. The process is running if you see CPU usage from the Python process:
+
+```bash
+ps aux | grep python
+```
+
+You can also check the database size growing:
+```bash
+ls -lh data/health.db
+```
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
