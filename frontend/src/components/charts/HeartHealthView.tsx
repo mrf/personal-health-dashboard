@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useMetricHistory } from '../../hooks/useHealthData';
 import { api } from '../../services/api';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ReferenceLine, ComposedChart, Bar, Legend, ScatterChart, Scatter, ZAxis
 } from 'recharts';
 import { Heart, Droplets, Coffee, Activity } from 'lucide-react';

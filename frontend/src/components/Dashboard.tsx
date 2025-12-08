@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useImportStatus, useWeeklySummary, useTrends, useCorrelations, useRecords } from '../hooks/useHealthData';
 import { StepsChart } from './charts/StepsChart';
-import { HeartRateChart } from './charts/HeartRateChart';
 import { HeartHealthView } from './charts/HeartHealthView';
 import { SleepChart } from './charts/SleepChart';
 import { WeightChart } from './charts/WeightChart';
