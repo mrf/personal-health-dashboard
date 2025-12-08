@@ -71,7 +71,11 @@ def init_database():
             sleep_hours REAL,
             workout_minutes REAL,
             distance_km REAL,
-            flights_climbed INTEGER
+            flights_climbed INTEGER,
+            blood_pressure_systolic REAL,
+            blood_pressure_diastolic REAL,
+            caffeine_mg REAL,
+            water_ml REAL
         )
     """)
 
@@ -193,6 +197,10 @@ def detect_units_from_data():
         "HKQuantityTypeIdentifierRestingHeartRate": "resting_heart_rate",
         "HKQuantityTypeIdentifierHeight": "height",
         "HKQuantityTypeIdentifierFlightsClimbed": "flights",
+        "HKQuantityTypeIdentifierBloodPressureSystolic": "blood_pressure_systolic",
+        "HKQuantityTypeIdentifierBloodPressureDiastolic": "blood_pressure_diastolic",
+        "HKQuantityTypeIdentifierDietaryCaffeine": "caffeine",
+        "HKQuantityTypeIdentifierDietaryWater": "water",
     }
 
     # Get first non-null unit for each type
@@ -283,7 +291,8 @@ def compute_daily_summaries():
     # Aggregate all health metrics in a single query with GROUP BY
     # This is much faster than per-day queries for large datasets
     cursor.execute("""
-        INSERT INTO daily_summary (date, steps, active_calories, resting_heart_rate, distance_km, flights_climbed)
+        INSERT INTO daily_summary (date, steps, active_calories, resting_heart_rate, distance_km, flights_climbed,
+                                   blood_pressure_systolic, blood_pressure_diastolic, caffeine_mg, water_ml)
         SELECT
             DATE(start_date) as date,
             SUM(CASE WHEN type = 'HKQuantityTypeIdentifierStepCount' THEN value END) as steps,
@@ -294,7 +303,11 @@ def compute_daily_summaries():
                 THEN SUM(CASE WHEN type = 'HKQuantityTypeIdentifierDistanceWalkingRunning' THEN value END) / 1000.0
                 ELSE SUM(CASE WHEN type = 'HKQuantityTypeIdentifierDistanceWalkingRunning' THEN value END)
             END as distance_km,
-            SUM(CASE WHEN type = 'HKQuantityTypeIdentifierFlightsClimbed' THEN value END) as flights_climbed
+            SUM(CASE WHEN type = 'HKQuantityTypeIdentifierFlightsClimbed' THEN value END) as flights_climbed,
+            AVG(CASE WHEN type = 'HKQuantityTypeIdentifierBloodPressureSystolic' THEN value END) as blood_pressure_systolic,
+            AVG(CASE WHEN type = 'HKQuantityTypeIdentifierBloodPressureDiastolic' THEN value END) as blood_pressure_diastolic,
+            SUM(CASE WHEN type = 'HKQuantityTypeIdentifierDietaryCaffeine' THEN value END) as caffeine_mg,
+            SUM(CASE WHEN type = 'HKQuantityTypeIdentifierDietaryWater' THEN value END) as water_ml
         FROM health_records
         WHERE DATE(start_date) IS NOT NULL
         GROUP BY DATE(start_date)
@@ -419,7 +432,11 @@ def get_metric_history(metric_type: str, start_date: date, end_date: date) -> li
         "sleep": "sleep_hours",
         "workouts": "workout_minutes",
         "distance": "distance_km",
-        "flights": "flights_climbed"
+        "flights": "flights_climbed",
+        "blood_pressure_systolic": "blood_pressure_systolic",
+        "blood_pressure_diastolic": "blood_pressure_diastolic",
+        "caffeine": "caffeine_mg",
+        "water": "water_ml"
     }
 
     # Reject unknown metric types instead of using user input directly

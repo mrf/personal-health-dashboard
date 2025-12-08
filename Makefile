@@ -59,7 +59,10 @@ dev:
 	@echo "Frontend: http://localhost:5173"
 	@echo ""
 	@echo "Press Ctrl+C to stop"
-	@make -j2 dev-backend dev-frontend
+	@trap 'kill 0' INT TERM; \
+		(cd backend && . venv/bin/activate && uvicorn app.main:app --reload --port 8000) & \
+		(cd frontend && npm run dev) & \
+		wait
 
 dev-backend:
 	cd backend && . venv/bin/activate && uvicorn app.main:app --reload --port 8000

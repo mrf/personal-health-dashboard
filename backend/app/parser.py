@@ -42,6 +42,8 @@ QUANTITY_TYPES = {
     "HKQuantityTypeIdentifierRespiratoryRate",
     "HKQuantityTypeIdentifierAppleStandTime",
     "HKQuantityTypeIdentifierAppleExerciseTime",
+    "HKQuantityTypeIdentifierDietaryCaffeine",
+    "HKQuantityTypeIdentifierDietaryWater",
 }
 
 SLEEP_TYPES = {
@@ -221,6 +223,10 @@ def parse_apple_health_export(file_path: str, progress_callback=None) -> dict:
             "HKQuantityTypeIdentifierRestingHeartRate": "resting_heart_rate",
             "HKQuantityTypeIdentifierHeight": "height",
             "HKQuantityTypeIdentifierFlightsClimbed": "flights",
+            "HKQuantityTypeIdentifierBloodPressureSystolic": "blood_pressure_systolic",
+            "HKQuantityTypeIdentifierBloodPressureDiastolic": "blood_pressure_diastolic",
+            "HKQuantityTypeIdentifierDietaryCaffeine": "caffeine",
+            "HKQuantityTypeIdentifierDietaryWater": "water",
         }
         for hk_type, unit in detected_units.items():
             metric_name = metric_name_map.get(hk_type, hk_type)

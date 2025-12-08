@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useImportStatus, useWeeklySummary, useTrends, useCorrelations, useRecords } from '../hooks/useHealthData';
 import { StepsChart } from './charts/StepsChart';
 import { HeartRateChart } from './charts/HeartRateChart';
+import { HeartHealthView } from './charts/HeartHealthView';
 import { SleepChart } from './charts/SleepChart';
 import { WeightChart } from './charts/WeightChart';
 import { TodaySummary } from './insights/TodaySummary';
@@ -194,14 +195,7 @@ function SleepTab({ days }: { days: number }) {
 }
 
 function HeartTab({ days }: { days: number }) {
-  return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-xl shadow-sm p-6">
-        <h3 className="text-lg font-semibold mb-4">Resting Heart Rate</h3>
-        <HeartRateChart days={days} />
-      </div>
-    </div>
-  );
+  return <HeartHealthView days={days} />;
 }
 
 function WeightTab({ days }: { days: number }) {
